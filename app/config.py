@@ -27,5 +27,14 @@ class Settings(BaseSettings):
     # delivery should sit before the agent notices it.
     tick_seconds: float = 180
 
+    # The customer's question box (POST /track/{token}/ask). Who the customer
+    # is told to contact, and how many questions a public link may ask.
+    operator_name: str = ""
+    operator_phone: str = ""
+    # Where customers are sent once a link has asked its share of questions.
+    operator_email: str = ""
+    customer_questions_per_link: int = 8  # per 10 minutes
+    customer_questions_per_minute: int = 60  # across all links
+
 
 settings = Settings()

@@ -6,8 +6,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from . import customer
 from .client import APIError
 from .config import settings
 from .graph import build_ask_graph, build_proposal_graph
@@ -138,6 +139,45 @@ async def ask(req: AskRequest) -> AskResponse:
         logging.getLogger("app.ask").exception("ask failed")
         raise HTTPException(502, detail=f"The model call failed: {type(e).__name__}: {str(e)[:160]}")
     return AskResponse(answer=result["messages"][-1].content)
+
+
+class CustomerAsk(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    # The viewer's IANA zone, so times read as their local time. Falls back to the operator's.
+    timezone: str | None = Field(default=None, max_length=64)
+
+
+customer_limit = customer.RateLimit(settings.customer_questions_per_link, settings.customer_questions_per_minute)
+# Units and the operator's zone change only with a restart of the Go API.
+_operator: dict = {}
+
+
+@app.post("/track/{token}/ask", response_model=AskResponse)
+async def customer_ask(token: str, req: CustomerAsk) -> AskResponse:
+    """A customer's question about the one delivery their link is for. No tools:
+    the answer comes only from GET /track/{token} (see customer.py)."""
+    question = req.question.strip()
+    if len(token) != 16:
+        raise HTTPException(404, detail="delivery not found")
+    if not question:
+        raise HTTPException(422, detail="Type a question.")
+    if not customer_limit.allow(token):
+        raise HTTPException(429, detail=customer.more_help_note())
+    try:
+        track = await api.track(token)
+        if not _operator:
+            _operator.update(await api.get_config())
+    except APIError as e:
+        if e.status == 404:
+            raise HTTPException(404, detail="delivery not found")
+        raise HTTPException(503, detail="Delivery details aren't available right now.")
+    tz = customer.zone_for(req.timezone, _operator.get("timezone", "UTC"))
+    try:
+        text = await customer.answer(llm, track, question, tz, _operator.get("units", "metric"))
+    except Exception as e:
+        logging.getLogger("app.customer").exception("customer ask failed")
+        raise HTTPException(502, detail=f"Questions aren't available right now ({type(e).__name__}).")
+    return AskResponse(answer=text)
 
 
 @app.post("/tick")
