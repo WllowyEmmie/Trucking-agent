@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class ProposedAssignment(BaseModel):
-    """One truck for one delivery. Nothing else is proposable yet.
+    """One truck for one delivery: a pending one, or a failed one going out again.
 
     The model names both as the table does (reference and plate): shorter than
     uuids and nothing to mistype. The proposer maps them back to ids and
@@ -13,7 +13,8 @@ class ProposedAssignment(BaseModel):
     truck: str = Field(description="Truck plate from the table, e.g. LAG-451-BC")
     why: str = Field(
         description="One sentence citing the table: distance to the pickup, "
-        "how long the delivery has waited, how old the truck's position is."
+        "how long the delivery has waited, how old the truck's position is. "
+        "For a failed delivery: why it failed and the plan, then the distance."
     )
 
 

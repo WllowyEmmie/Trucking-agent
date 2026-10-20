@@ -1,9 +1,13 @@
+import uuid
+
 from langchain_core.tools import tool
 
 from .client import APIError, DispatchAPI
 
 # One client for the process. httpx pools connections.
 api = DispatchAPI()
+
+DELIVERY_STATUSES = {"pending", "assigned", "in_transit", "completed", "cancelled", "failed"}
 
 
 @tool
@@ -28,6 +32,9 @@ async def list_deliveries(status: str = "") -> str:
     Pass an empty string for all of them. The list is thin — use
     get_delivery for stops and the event timeline.
     """
+    status = status.strip().lower()
+    if status and status not in DELIVERY_STATUSES:
+        return f"Unknown status {status!r}. Use one of: {', '.join(sorted(DELIVERY_STATUSES))}, or an empty string."
     try:
         deliveries = await api.list_deliveries(status or None)
     except APIError as e:
@@ -57,7 +64,12 @@ async def get_delivery(delivery_id: str) -> str:
     of the truck carrying it. delivery_id is a uuid from list_deliveries.
     """
     try:
-        detail = await api.get_delivery(delivery_id)
+        uuid.UUID(delivery_id.strip())
+    except ValueError:
+        # The model sometimes passes the reference (DEL-2026-10001) instead.
+        return "delivery_id must be the uuid `id` from list_deliveries, not the reference."
+    try:
+        detail = await api.get_delivery(delivery_id.strip())
     except APIError as e:
         return f"Could not load delivery: {e.message}"
     return _compact(detail)
